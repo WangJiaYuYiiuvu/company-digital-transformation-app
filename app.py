@@ -9,11 +9,14 @@ import os
 pd.set_option('display.unicode.ambiguous_as_wide', True)
 pd.set_option('display.unicode.east_asian_width', True)
 
-# ====================== 路径配置（已按需求修改）======================
-DIGITAL_TRANSFORMATION_FILE = r"C:\Users\Lenovo\Desktop\wordfreq_app\上市公司数字化合并总表.xlsx"
-WORD_FREQ_FILE = r"C:\Users\Lenovo\Desktop\wordfreq_app\总词频统计表.xlsx"
-PY_FILE_PATH = r"C:\Users\Lenovo\Desktop\wordfreq_app\app.py"
-ROOT_FOLDER = r"C:\Users\Lenovo\Desktop\wordfreq_app"
+# ====================== 路径配置（云端部署专用）======================
+# 改为相对路径（Excel文件和app.py放在GitHub仓库根目录）
+DIGITAL_TRANSFORMATION_FILE = "上市公司数字化合并总表.xlsx"
+# 备用词频表（如果不用可以注释）
+WORD_FREQ_FILE = "总词频统计表.xlsx"
+# 云端无需配置本地PY文件路径，改为空字符串即可
+PY_FILE_PATH = ""
+ROOT_FOLDER = ""
 # =====================================================================
 
 # 工具函数：生成Excel下载文件
@@ -87,22 +90,28 @@ def generate_company_report(company_name, company_data, full_trend_data):
 """
     return report, full_trend_data
 
-# 读取完整数据（不限制年份）
+# 读取完整数据（增强云端容错）
 def load_full_data(file_path):
     try:
+        # 云端读取Excel的兼容设置
         df = pd.read_excel(
             file_path,
             sheet_name="Sheet1",
-            engine="openpyxl"
+            engine="openpyxl",
+            na_filter=False  # 避免云端空值处理异常
         )
         # 清洗数据（兼容文本/数字格式的年份）
         if "年份" in df.columns:
-            df["年份"] = df["年份"].astype(str).str.strip()  # 转为字符串，避免格式问题
+            # 先转数字再转字符串，处理1999.0这种格式
+            df["年份"] = pd.to_numeric(df["年份"], errors='coerce').fillna(df["年份"]).astype(str).str.strip()
         if "企业名称" in df.columns:
             df["企业名称"] = df["企业名称"].str.strip()
         if "股票代码" in df.columns:
             df["股票代码"] = df["股票代码"].astype(str).str.strip()
         return df.dropna(how="all").reset_index(drop=True)
+    except FileNotFoundError:
+        st.error(f"❌ 未找到文件：{file_path}，请检查文件是否上传到GitHub仓库根目录")
+        return pd.DataFrame()
     except Exception as e:
         st.error(f"❌ 读取数据失败：{str(e)}")
         return pd.DataFrame()
@@ -112,20 +121,17 @@ def get_all_years(full_data):
     if "年份" not in full_data.columns:
         st.error("❌ 数据中未找到'年份'列")
         return []
-    return sorted(full_data["年份"].unique())
+    # 过滤空字符串年份
+    return sorted([year for year in full_data["年份"].unique() if year.strip()])
 
 def main():
     st.title("企业数字化转型指数查询系统")
     
-    # 验证文件是否存在
-    if not os.path.exists(DIGITAL_TRANSFORMATION_FILE):
-        st.error(f"❌ 文件不存在：{DIGITAL_TRANSFORMATION_FILE}")
-        return
-    
-    # 读取完整数据（核心修复：不限制年份格式）
+    # 跳过本地文件验证（云端用相对路径，无需验证）
+    # 直接读取数据
     full_data = load_full_data(DIGITAL_TRANSFORMATION_FILE)
     if full_data.empty:
-        st.error("❌ 数据为空，请检查Excel文件内容")
+        st.error("❌ 数据为空，请检查Excel文件是否正确上传")
         return
 
     # 获取所有年份（兼容任意格式）
@@ -166,7 +172,7 @@ def main():
     else:
         st.info(f"ℹ️ {selected_year}年数据中无匹配企业，请调整查询条件")
 
-    # 全行业平均指数趋势图（仅保留折线图，删除企业数量分布）
+    # 全行业平均指数趋势图（仅保留折线图）
     st.subheader("📊 全行业转型指数趋势")
     industry_avg_data = []
     for year in all_years:
